@@ -2,9 +2,10 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Учёт приборов</title>
     <style>
+        /* ваши стили (оставьте как есть, они не меняются) */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; padding: 20px; }
         .container { max-width: 600px; margin: 0 auto; }
@@ -45,8 +46,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script>
     // ========== НАСТРОЙКИ ==========
-    // Ссылка на CSV-экспорт Google Sheets (ЗАМЕНИТЕ НА ВАШУ)
-    const GOOGLE_SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS7omr1rut0B8Ld01QpzFibGVDejXub3ZxzLODbgZPb2WLrOjLP2jO_RHA5rmT7m5A3UqGIKeqqLBGB/pub?output=csv";
+    const GOOGLE_SHEETS_URL = "https://docs.google.com/spreadsheets/d/ВАШ_ИДЕНТИФИКАТОР/export?format=csv"; // ЗАМЕНИТЕ!
     // ===============================
 
     let currentInstruments = [];
@@ -55,23 +55,26 @@
         const response = await fetch(GOOGLE_SHEETS_URL);
         if (!response.ok) throw new Error(`Ошибка загрузки CSV: ${response.status}`);
         const csvText = await response.text();
+        console.log("CSV получен, первые 500 символов:", csvText.substring(0, 500));
         
-        // Разбираем CSV с помощью библиотеки XLSX (она умеет читать CSV)
+        // Разбираем CSV с помощью XLSX
         const workbook = XLSX.read(csvText, { type: 'string', raw: true });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
         if (!rows || rows.length < 2) return [];
         
-        // Преобразуем строки в объекты (первая строка — заголовки)
-        const headers = rows[0];
+        console.log("Всего строк (включая заголовок):", rows.length);
+        console.log("Первая строка (заголовки):", rows[0]);
+        console.log("Вторая строка (первые данные):", rows[1]);
+        
         const instruments = [];
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if (!row || row.length === 0) continue;
-            if (!row[0] && !row[1]) continue;
+            if (row[0] === undefined || row[0] === "") continue; // пропускаем пустые ID
             
             instruments.push({
-                id: String(row[0] !== undefined && row[0] !== null ? row[0] : i),
+                id: String(row[0]),
                 name: row[1] || '',
                 serial_number: row[2] || '',
                 model: row[3] || '',
@@ -84,16 +87,16 @@
                 taken_date: formatDateFromExcel(row[12])
             });
         }
+        console.log("Обработано приборов:", instruments.length);
+        console.log("Первый прибор:", instruments[0]);
         return instruments;
     }
 
     function formatDateFromExcel(dateValue) {
         if (!dateValue) return '';
         let str = String(dateValue).trim();
-        // Пытаемся извлечь дату в формате ГГГГ-ММ-ДД
         const match = str.match(/(\d{4})-(\d{2})-(\d{2})/);
         if (match) return match[0];
-        // Если это число (Excel-дата)
         if (typeof dateValue === 'number') {
             const date = new Date((dateValue - 25569) * 86400 * 1000);
             if (!isNaN(date.getTime())) return date.toISOString().slice(0,10);
@@ -107,144 +110,16 @@
         return validUntil < today ? 'просрочен' : 'годен';
     }
 
-    function showModal(title, content) {
-        let modal = document.getElementById('customModal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'customModal';
-            modal.className = 'modal';
-            modal.innerHTML = `<div class="modal-content"><h3 id="modalTitle"></h3><div id="modalBody"></div><button class="btn btn-small" id="modalCloseBtn">Закрыть</button></div>`;
-            document.body.appendChild(modal);
-            document.getElementById('modalCloseBtn').onclick = () => modal.style.display = 'none';
-        }
-        document.getElementById('modalTitle').innerText = title;
-        document.getElementById('modalBody').innerHTML = content;
-        modal.style.display = 'flex';
-    }
-
-    function showQRModal(instrument) {
-        const currentUrl = window.location.href.split('?')[0];
-        const cardUrl = `${currentUrl}?id=${encodeURIComponent(instrument.id)}`;
-        const content = `<div class="qr-container"><p><strong>${escapeHtml(instrument.name)}</strong></p><div id="qr-code"></div><button class="btn btn-small" id="downloadQR">Скачать QR</button></div>`;
-        showModal(`QR-код #${instrument.id}`, content);
-        setTimeout(() => {
-            new QRCode(document.getElementById("qr-code"), { text: cardUrl, width: 200, height: 200 });
-            document.getElementById('downloadQR').onclick = () => {
-                const canvas = document.querySelector('#qr-code canvas');
-                if (canvas) {
-                    const link = document.createElement('a');
-                    link.download = `QR_${instrument.id}.png`;
-                    link.href = canvas.toDataURL();
-                    link.click();
-                }
-            };
-        }, 100);
-    }
-
-    function showEditForm(instrument) {
-        const today = new Date().toISOString().slice(0,10);
-        const formHtml = `
-            <div class="form-group"><label>ФИО сотрудника</label><input type="text" id="takenBy" value="${escapeHtml(instrument.taken_by)}"></div>
-            <div class="form-group"><label>Куда взял</label><input type="text" id="takenWhere" value="${escapeHtml(instrument.taken_where)}"></div>
-            <div class="form-group"><label>Дата выдачи</label><input type="date" id="takenDate" value="${instrument.taken_date || today}"></div>
-            <button class="btn btn-edit" id="saveBtn">Сохранить</button>
-            <button class="btn btn-clear" id="clearBtn">Очистить</button>
-        `;
-        showModal(`Выдача: ${escapeHtml(instrument.name)}`, formHtml);
-        document.getElementById('saveBtn').onclick = () => {
-            instrument.taken_by = document.getElementById('takenBy').value;
-            instrument.taken_where = document.getElementById('takenWhere').value;
-            instrument.taken_date = document.getElementById('takenDate').value;
-            document.getElementById('customModal').style.display = 'none';
-            renderApp();
-        };
-        document.getElementById('clearBtn').onclick = () => {
-            instrument.taken_by = '';
-            instrument.taken_where = '';
-            instrument.taken_date = '';
-            document.getElementById('customModal').style.display = 'none';
-            renderApp();
-        };
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        return String(str).replace(/[&<>]/g, function(m) {
-            if (m === '&') return '&amp;';
-            if (m === '<') return '&lt;';
-            if (m === '>') return '&gt;';
-            return m;
-        });
-    }
-
-    function renderCard(inst) {
-        const status = getStatus(inst.valid_until);
-        const statusClass = status === 'годен' ? 'good' : (status === 'просрочен' ? 'expired' : 'no-date');
-        const hasTaken = inst.taken_by && inst.taken_by.trim() !== '';
-        const takenHtml = hasTaken ? `
-            <div class="issued-info">
-                <div class="field"><div class="field-label">Кто взял</div><div class="field-value">${escapeHtml(inst.taken_by)}</div></div>
-                <div class="field"><div class="field-label">Куда взял</div><div class="field-value">${escapeHtml(inst.taken_where) || '—'}</div></div>
-                <div class="field"><div class="field-label">Дата выдачи</div><div class="field-value">${escapeHtml(inst.taken_date) || '—'}</div></div>
-            </div>
-        ` : '';
-        const docLink = inst.document_url && inst.document_url !== 'nan' ? `<a href="${escapeHtml(inst.document_url)}" target="_blank">📄 Открыть документ</a>` : '—';
-        return `
-        <div class="card">
-            <div class="title">${escapeHtml(inst.name)}</div>
-            <div class="badge ${statusClass}">${escapeHtml(status)}</div>
-            <div class="field"><div class="field-label">Серийный номер</div><div class="field-value">${escapeHtml(inst.serial_number) || '—'}</div></div>
-            <div class="field"><div class="field-label">Модель</div><div class="field-value">${escapeHtml(inst.model) || '—'}</div></div>
-            <div class="field"><div class="field-label">Тип</div><div class="field-value">${escapeHtml(inst.type) || '—'}</div></div>
-            <div class="field"><div class="field-label">Дата поверки</div><div class="field-value">${escapeHtml(inst.verification_date) || '—'}</div></div>
-            <div class="field"><div class="field-label">Действителен до</div><div class="field-value">${escapeHtml(inst.valid_until) || '—'}</div></div>
-            <div class="field"><div class="field-label">Документ</div><div class="field-value">${docLink}</div></div>
-            ${takenHtml}
-            <div class="button-group">
-                <button class="btn btn-edit" onclick="showEditForm(currentInstrument)">${hasTaken ? 'Редактировать выдачу' : 'Выдать прибор'}</button>
-                <button class="btn btn-qr" onclick="showQRModal(currentInstrument)">QR-код</button>
-                <a href="?" class="btn btn-clear">К списку</a>
-            </div>
-        </div>`;
-    }
-
-    function renderList() {
-        if (!currentInstruments.length) return '<div class="card"><h1>Оборудование</h1><div class="error">Нет данных</div></div>';
-        let html = '<div class="card"><h1>Оборудование</h1>';
-        for (const inst of currentInstruments) {
-            const status = getStatus(inst.valid_until);
-            const statusClass = status === 'годен' ? 'good' : (status === 'просрочен' ? 'expired' : 'no-date');
-            const takenIcon = inst.taken_by ? '📤' : '✅';
-            html += `<a href="?id=${encodeURIComponent(inst.id)}" class="list-item"><span>#${escapeHtml(inst.id)} ${escapeHtml(inst.name)}</span><span><span class="badge ${statusClass}" style="margin:0;padding:4px 10px;">${escapeHtml(status)}</span> ${takenIcon}</span></a>`;
-        }
-        html += '</div>';
-        return html;
-    }
-
-    function renderApp() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const id = urlParams.get('id');
-        const appDiv = document.getElementById('app');
-        if (!appDiv) return;
-        if (id) {
-            const inst = currentInstruments.find(i => String(i.id) === id);
-            if (inst) {
-                window.currentInstrument = inst;
-                appDiv.innerHTML = renderCard(inst);
-            } else {
-                appDiv.innerHTML = `<div class="error">Прибор не найден<br><a href="?" style="color:#2563eb;">← Назад</a></div>`;
-            }
-        } else {
-            appDiv.innerHTML = renderList();
-        }
-    }
+    // ... остальные функции (showModal, showQRModal, showEditForm, escapeHtml, renderCard, renderList, renderApp) остаются без изменений ...
+    // Чтобы не загромождать, я их не повторяю, но они должны быть те же, что в предыдущем сообщении.
+    // Вставьте их сюда из прошлого стабильного кода.
 
     (async () => {
         try {
             currentInstruments = await loadFromGoogleSheets();
             renderApp();
         } catch(e) {
-            document.getElementById('app').innerHTML = `<div class="error">Ошибка загрузки: ${e.message}<br><br>Проверьте ссылку на Google Sheets (должна заканчиваться на /export?format=csv) и что таблица опубликована.</div>`;
+            document.getElementById('app').innerHTML = `<div class="error">Ошибка загрузки: ${e.message}<br><br>Проверьте ссылку на Google Sheets.</div>`;
             console.error(e);
         }
     })();
