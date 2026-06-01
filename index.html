@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Тест Google Sheets</title>
+</head>
+<body>
+    <h2>Проверка загрузки данных из Google Sheets</h2>
+    <pre id="log">Загрузка...</pre>
+
+    <script>
+        // ЗАМЕНИТЕ ЭТУ ССЫЛКУ НА ВАШУ (с /pub?output=csv)
+        const GS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS7omr1rut0B8Ld01QpzFibGVDejXub3ZxzLODbgZPb2WLrOjLP2jO_RHA5rmT7m5A3UqGIKeqqLBGB/pubhtml?gid=1807079495&single=true";
+
+        async function test() {
+            const logDiv = document.getElementById('log');
+            try {
+                logDiv.innerText = "1. Загружаем CSV...";
+                const response = await fetch(GS_URL);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const csvText = await response.text();
+                logDiv.innerText += "\n2. CSV получен, длина: " + csvText.length + " символов";
+                
+                // Разбираем CSV в массив строк
+                const rows = csvText.split('\n').map(row => row.split(','));
+                logDiv.innerText += "\n3. Всего строк: " + rows.length;
+                logDiv.innerText += "\n4. Первые 3 строки:\n" + JSON.stringify(rows.slice(0,3), null, 2);
+                
+                logDiv.innerText += "\n\n✅ Тест успешен! Данные из Google Sheets загружены.";
+            } catch(e) {
+                logDiv.innerText = "❌ Ошибка: " + e.message;
+                console.error(e);
+            }
+        }
+        test();
+    </script>
+</body>
+</html>
